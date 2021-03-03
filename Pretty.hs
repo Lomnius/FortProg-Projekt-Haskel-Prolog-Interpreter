@@ -20,11 +20,9 @@ instance Pretty Term where
 -- Hilfsfunktion welche bei Listen hilft
 termArrayPretty :: [Term] -> String 
 termArrayPretty ((Comb combname [Var (VarName varname)]):ts) = combname ++ "(" ++ varname ++ ")" -- Vorläufer (nur eine Variable) => nicht ausreichend
-termArrayPretty ((Comb combname (t2:ts2)):ts) = combname ++ "(" ++ varname ++ ")"
-termArrayPretty (t1:ts) 
-                          |null ts || ts ==[Comb "[]" []] = pretty t1 -- ts == [] bzw. Ende einer Liste
-                          | otherwise = pretty t1 ++ ", " ++ termArrayPretty ts
- where tailString ts = if null ts || ts ==[Comb "[]" []]
+termArrayPretty ((Comb combname (t2:ts2)):ts) = combname ++ "("  ++ ")"
+termArrayPretty (t1:ts) = pretty t1 ++ tailString ts
+ where tailString ts = if null ts || ts == [Comb "[]" []] then "" else ", " ++ termArrayPretty ts -- ts == [] bzw. Ende einer Liste
 
 
 
