@@ -24,6 +24,8 @@ instance Vars Goal where
 
 freshVars:: [VarName]
 freshVars = [VarName [s] | s <- ['A'..'Z']] ++ [VarName (s1 : show s2) |s2 <- [0..], s1 <- ['A'..'Z'] ]
+-- [VarName [s] | s <- ['A'..'Z']]                         => A bis Z ohne Zahl
+-- [VarName (s1 : show s2) |s2 <- [0..], s1 <- ['A'..'Z']  => A bis Z mit Zahl also A0 B0 etc.
 
 
 --allVarsTList :: [Term] -> [VarName]
