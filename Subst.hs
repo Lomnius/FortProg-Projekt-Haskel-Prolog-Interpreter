@@ -1,4 +1,4 @@
-module Subst(Subst()) where
+module Subst(Subst()) where --TODO hier die modulbeschreibung entsprechend ändern
 
 import Type
 import Vars
