@@ -1,76 +1,183 @@
-module Subst(Subst()) where --TODO hier die modulbeschreibung entsprechend ändern
+{-# LANGUAGE TemplateHaskell #-}
 
+module Subst(Subst(), domain, single, empty, apply, compose, restrictTo, allVars, testSubst) where
+--module Subst(Subst(), domain, single, empty, apply, compose, restrictTo, allVars) where
 import Type
-import Vars
-import Data.List
 import Pretty
+import Vars
+import Test.QuickCheck
+import Data.List
 
---Definition des ADTs Subst.
---Repräsentation durch Liste von Tupeln von Variablennamen - bei ADTs wird der Konstruktor nicht exportiert ≈ er ist private (java)
-newtype Subst = Subst [(VarName, Term)]
+-- Abstrakter Datentyp Subst mit Liste von Variablennamen und Funktion welche Variablennamen auf Terme abbildet
+data Subst = Subst [VarName] (VarName -> Term)
 
---Alle Variablen, welche nicht auf sich Selbst abgebildet werden
-domain :: Subst -> [VarName]
-domain (Subst []) = []
-domain (Subst ((v, t):ss)) = vname ++ domain (Subst ss)
- where vname = [v | v `notElem` allVars t] --if elem v (allVars t) then [] else [v]
+-- Instanz von Show um eine Substitution auszugeben
+instance Show Subst where
+  show = pretty
 
---Leere Substitution
-empty :: Subst
-empty = Subst []
-
--- Erstellen einer Einstelligen Substitution
-single :: VarName -> Term -> Subst
-single v t = Subst [(v, t)]
-
-apply :: Subst -> Term -> Term 
-apply (Subst []) t = t  -- Leere Substitution apply empty t = t hat nicht funktioniert
-apply (Subst ((v,t):ss)) t2 = apply (Subst ss) $ exchange v t t2 -- Nichtleere bzw. mehrere Substitution
-                                                                 -- wendet die Substitutionen nacheinander von rechts nach links an
-
---Hilfsfunktion, welche das eigentliche Ersetzen übernimmt
-exchange:: VarName -> Term -> Term -> Term
-exchange v t (Var vname ) = if v == vname then t else Var vname -- Basisfall => Term besteht nur aus Variable
-exchange v t (Comb cname []) = Comb cname []                    -- Basisfall => Term besteht aus "leerer" Kombination
-exchange v t (Comb cname ts) = Comb cname (exchangeList v t ts) -- Komplexerfall => Term besteht aus Kombination von Termen
-
--- Hilfsfunktion: führt die Substitution in einer Liste von Termen durch
-exchangeList :: VarName  -> Term -> [Term] -> [Term]
-exchangeList v t0 = map (exchange v t0)
--- Äquivalent zu den folgenden beiden Zeilen:
---exchangeList v t0 [] = []
---exchangeList v t0 (t:ts) = exchange v t0 t : exchangeList v t0 ts
-
---Komposition
---Frage Reihenfolge Beachtet? vermutlich derzeit von rechts nach links angewandt siehe apply
-compose :: Subst -> Subst -> Subst
-compose t (Subst []) = t -- empty hinschreiben hat wieder nicht funktioniert deswegen (Subst [])
-compose (Subst []) t = t
-compose (Subst t1) (Subst t2) = Subst (nub $ t1 ++ t2) -- wir wollen bestimmt keine Dublikate haben, deswegen nub
-
--- Ich interpretiere dass so, dass alse Substitutionen gestrichen werden, deren variablen nicht in der Liste enthalten sind
-restrictTo :: Subst -> [VarName] -> Subst
-restrictTo (Subst []) _ = Subst []                       -- Basisfall => leere Substitution
-restrictTo (Subst s) vs = Subst (filter (tupelElem vs)s) -- Behalte diejenigen Tupeel, deren variablenname in der Liste der Variablennamen ist.
-
--- Hilfsfunktion welche für für das Filtern der Tupel benötigt wird.
-tupelElem :: Eq a => [a] -> (a,b) -> Bool
-tupelElem [a] (c,_)      = a == c
-tupelElem (a: as ) (c,d) = a == c || tupelElem as (c,d)
-
-
+-- Instanz von Pretty für Subst
+{-
+Nutzt die Funktionen der Substitution und zwei Hilfsfunktionen um diese formatiert auszugeben.
+h nutzt apply um die Substitution mit einem gegebenen Variablennamen auszuführen
+  Der Output von h ist pretty variablenname -> pretty term auf den die Variable abgebildet wird
+h' fügt einen gegebenen String (hier ", ") zwischen jedes Element einer Liste von Strings und konkatiniert diese
+-}
 instance Pretty Subst where
-    pretty s | null (domain s) = "{}"
-    pretty (Subst ts) = "{" ++ tupelListToPretty ts ++ "}"
+  pretty s = "{" ++ h' ", " (map h (domain s)) ++ "}" -- h wird auf jeden Variablennamen angewand, den die domain der Substitution zurückliefert
+   where
+    h :: VarName -> String
+    h vname = pretty vname ++ " -> " ++ pretty (apply s (Var vname))
+    h' :: String -> [String] -> String
+    h' _ []       = []
+    h' _ [x]      = x
+    h' a (x : xs) = x ++ a ++ h' a xs
 
--- Hilfsfunktion für die Instanz fon Pretty
-tupelListToPretty :: [(VarName, Term)] -> String 
-tupelListToPretty [] = ""
-tupelListToPretty [(VarName vname, t)] = vname ++ " -> " ++ pretty t
-tupelListToPretty ((VarName vname, t):xs) = tupelListToPretty xs ++ ", "++ vname ++ " -> " ++ pretty t
-
-
--- Instanz von Vars für Subst (Aufgabenteil 8)
+-- Instanz von Vars für Subst
 instance Vars Subst where
-    allVars (Subst []) = []
-    allVars (Subst ((vname, _):ss)) = vname : allVars (Subst ss)
+  allVars (Subst xs func) =
+    nub (xs ++ foldr (\x y -> allVars (func x) ++ y) [] xs)
+
+-- Instanz von Arbitrary für Subst
+instance Arbitrary Subst where
+  arbitrary = do
+    vts <- arbitrary                                 -- vts :: [(VarName, Term)]
+    let xs' = nub (map fst vts)
+    let func x = case lookup x vts of                -- schaut ob ein Variablennamen in einem Tupel aus vts vorkommt und definiert die Abbildung entsprechend
+          Nothing -> Var x
+          Just t  -> t
+    let xs'' = filter (\x -> Var x /= func x) xs'    -- Filtert alle Variablen, die auf sich selbst abgebildet werden
+    return (Subst xs'' func)
+
+-- Gibt die domain einer Substitution zurück
+-- hier keine Dupplikateliminierung, weil die Eindeutigkeit der Substitution an jeder anderen Stelle gewährt wird
+domain :: Subst -> [VarName]
+domain (Subst vs _) = vs
+
+-- Die leere Substitution
+empty :: Subst
+empty = Subst [] Var
+
+-- Eine einstellige Substitution
+-- wenn v == t gilt wird eine Variable auf sich selbst abgebildet, was der leeren Substitution entspricht.
+single :: VarName -> Term -> Subst
+single v t | Var v /= t = Subst [v] (\v' -> if v' == v then t else Var v')
+           | otherwise  = empty
+
+-- Wendet eine Substitution auf einen Term an
+apply :: Subst -> Term -> Term
+apply (Subst _ f) (Var x) = f x                         -- Anwenden der Funktion der Substitution auf den Term(=einfache Variable) 
+apply s (Comb n xs)       = Comb n (map (apply s) xs)   -- Wendet die Substitution auf jeden Term in der vorkommenden Liste an
+
+-- Eine Mehrstellige Substitution bzw. Komposition zweier Substitutionen
+compose :: Subst -> Subst -> Subst
+compose s@(Subst xs _) (Subst ys g) =  let f' = apply s . g                                          -- Anwenden der ersten Substitution auf das Ergebnis der zweiten Substitution
+                                       in  Subst (filter (\x -> Var x /= f' x) (nub  (ys ++ xs))) f' -- Duplikateliminierung über nub [VarName] und filtern der Variablennamen, auf die f' abbildet 
+
+-- Schränkt eine Subsitution bzw. ihren Definitionsbereich auf eine gegebene Menge von Variablen ein
+-- Filtert die Variablennamen der Substitution über die gegebene Menge
+restrictTo :: Subst -> [VarName] -> Subst
+restrictTo (Subst xs func) vnames = Subst (filter (`elem` vnames) xs) (\x' -> if x' `elem` vnames then func x' else Var x')
+
+
+-- Hilfsfunktion welche überprüft, ob ys eine Teilmenge von xs ist
+-- xs ⊆ ys
+subset :: Eq a => [a] -> [a] -> Bool
+subset xs ys = all (`elem` ys) xs
+-- 1
+prop_apply_empty :: Term -> Bool
+prop_apply_empty t = apply empty t == t
+-- 2
+prop_apply_single :: VarName -> Term -> Bool
+prop_apply_single vname t = apply (single vname t) (Var vname) == t
+-- 3
+prop_apply_comp :: Subst -> Subst -> Term -> Bool
+prop_apply_comp s1 s2 t = apply (compose s1 s2) t == apply s1 (apply s2 t)
+-- 4
+prop_empty_domain :: Bool
+prop_empty_domain = null (domain empty)
+-- 5
+prop_id_domain :: VarName -> Bool
+prop_id_domain vname = null (domain (single vname (Var vname)))
+-- 6
+prop_domain :: Term -> VarName -> Property
+prop_domain t vname = t /= Var vname ==> domain (single vname t) == [vname]
+-- 7
+prop_domain_subset :: Subst -> Subst -> Bool
+prop_domain_subset s1 s2 = subset (domain (compose s1 s2)) (domain s1 ++ domain s2)
+-- 8
+prop_domain_comp :: VarName -> VarName -> Property
+prop_domain_comp x1 x2 = x1 /= x2
+                         ==> domain (compose (single x2 (Var x1)) (single x1 (Var x2))) 
+                         == [x2]
+-- 9
+prop_allVars_empty :: Bool
+prop_allVars_empty = null (allVars empty)
+-- 10
+prop_allVars_single_id :: VarName -> Bool
+prop_allVars_single_id vname = null (allVars (single vname (Var vname)))
+-- 11 & 12
+prop_allVars_single :: VarName -> Term -> Bool
+prop_allVars_single vname t | Var vname == t = null (allVars (single vname (Var vname)))
+                            | otherwise = let all_vars = allVars (single vname t)
+                                          in  all_vars `subset` (vname : allVars t) && (vname : allVars t) `subset` all_vars
+-- 13 
+prop_allVars_compose_subset :: Subst -> Subst -> Bool
+prop_allVars_compose_subset s1 s2 = allVars (compose s1 s2) `subset` (allVars s1 ++ allVars s2)
+-- 15 (die Gleichheit wie auf mathematischen Mengen ist schwirgig, deswegen zwei mal subset testen)
+prop_allVars_compose :: VarName -> VarName -> Property
+prop_allVars_compose x1 x2 = x1 /= x2 ==> toCheck `subset` [x1, x2] && [x1, x2] `subset` toCheck
+                                    where toCheck = allVars (compose (single x2 (Var x1)) (single x1 (Var x2)))
+-- 14
+prop_domain_subset_allVars :: Subst -> Bool
+prop_domain_subset_allVars s = domain s `subset` allVars s
+-- 15
+prop_restrict_empty :: [VarName] -> Bool
+prop_restrict_empty xs = null (domain (restrictTo empty xs))
+-- 16
+prop_restrict :: [VarName] -> Subst -> Bool
+prop_restrict xs s = domain (restrictTo s xs) `subset` xs
+
+-- Um alle Properties in diesem Modul zu testen (wegen Bug mit IDE auskommentiert)
+--return []
+--testSubst :: IO Bool
+--testSubst = $quickCheckAll
+
+-- Hard-Code der obigen auskommentierten Funktion
+testSubst :: IO Bool
+testSubst = do
+  putStrLn "prop_apply_empty"
+  r1 <- quickCheckResult prop_apply_empty
+  putStrLn "prop_apply_single"
+  r2 <- quickCheckResult prop_apply_single
+  putStrLn "prop_apply_comp"
+  r3 <- quickCheckResult prop_apply_comp
+  putStrLn "prop_empty_domain"
+  r4 <- quickCheckResult prop_empty_domain
+  putStrLn "prop_id_domain"
+  r5 <- quickCheckResult prop_id_domain
+  putStrLn "prop_domain"
+  r6 <- quickCheckResult prop_domain
+  putStrLn "prop_domain_subset"
+  r7 <- quickCheckResult prop_domain_subset
+  putStrLn "prop_domain_comp"
+  r8 <- quickCheckResult prop_domain_comp
+  putStrLn "prop_allVars_empty"
+  r9 <- quickCheckResult prop_allVars_empty
+  putStrLn "prop_allVars_single_id"
+  r10 <- quickCheckResult prop_allVars_single_id
+  putStrLn "prop_allVars_single"
+  r11 <- quickCheckResult prop_allVars_single
+  putStrLn "prop_allVars_compose_subset"
+  r12 <- quickCheckResult prop_allVars_compose_subset
+  putStrLn "prop_allVars_compose"
+  r13 <- quickCheckResult prop_allVars_compose
+  putStrLn "prop_domain_subset_allVars"
+  r14 <- quickCheckResult prop_domain_subset_allVars
+  putStrLn "prop_restrict_empty"
+  r15 <- quickCheckResult prop_restrict_empty
+  putStrLn "prop_restrict"
+  r16 <- quickCheckResult prop_restrict
+  return (all isSuccess [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16])
+
+
+

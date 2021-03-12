@@ -1,31 +1,36 @@
+module Pretty(Pretty, pretty) where
+
 import Type
 
 class Pretty a where
     pretty :: a -> String
 
---Pretty Printing
---TODO ✗ : 
+-- Instanz von Pretty für Variablennamen
+instance Pretty VarName where
+    pretty (VarName vname) = show vname
+
+--Pretty Printing für Terme
 instance Pretty Term where
     pretty (Var (VarName name))    = name                                -- Basisfall für Variablen 
-    pretty (Comb "." [t1, t2])     = "[" ++ termListPretty t1 t2 ++ "]"  -- Fall für Listen -> die Liste in der Kombination aht genau zwei Elemente
+    pretty (Comb "." [t1, t2])     = "[" ++ termListPretty t1 t2 ++ "]"  -- Fall für Listen -> die Liste in der Kombination hat genau zwei Elemente
     pretty (Comb combname tlist)   = combname ++ s                       -- Rekursion für allgemein Kombinierte Terme
-     where s = if tlist /= [] then "(" ++ termListToString tlist ++ ")" else ""
+     where s = if tlist /= [] then "(" ++ termsToString tlist ++ ")" else ""
 
--- Hilfsfunktion welche bei Kombinationen das Array auswertet
+-- Hilfsfunktion welche, wenn Kombinationen eine Liste darstellen, das Array von Termen auswertet
 termListPretty:: Term -> Term  -> String 
-termListPretty t1 (Comb "[]" [])         = pretty t1 -- Listenende
+termListPretty t1 (Comb "[]" [])         = pretty t1                                   -- Listenende
 termListPretty t1 (Comb "." [t21, t22])  = pretty t1 ++ ", " ++ termListPretty t21 t22 -- Mitten in der Liste
-termListPretty t1 (Comb combname tlist ) = pretty t1 ++ "|"  ++ pretty (Comb combname tlist )
-termListPretty t1 t2                     = pretty t1 ++ "|"  ++ pretty t2
+termListPretty t1 t2                     = pretty t1 ++ "|"  ++ pretty t2              -- Die Liste von Termen hat mehr als zwei Elemente
 
 -- Hilfsfunktion welche eine Liste von Termen zu einem String umwandelt
-termListToString :: [Term] -> String 
-termListToString [] = ""
-termListToString [t] = pretty t
-termListToString (t:ts) = pretty t ++", "++ termListToString ts
+termsToString :: [Term] -> String 
+termsToString []     = ""
+termsToString [t]    = pretty t
+termsToString (t:ts) = pretty t ++ ", " ++ termsToString ts
 
 
 --Tests
+{-
 testA = pretty (Var (VarName "A"))
 testB = pretty (Comb "true" [])
 testC =  pretty (Comb "[]" [])
@@ -53,3 +58,4 @@ test11 = pretty (Comb "." [Var (VarName "I"), Comb "true" [], Comb "j" [Var (Var
 --".(I, true, j(J))" ✓
 test12 = pretty (Comb "." [Var (VarName "K"), Comb "." [Var (VarName "L"), Var (VarName "M"), Var (VarName "N"), Var (VarName "O")]])
 --"[K|.(L, M, N, O)]" ✓
+-}
